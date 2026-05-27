@@ -80,6 +80,7 @@ def fetch_fangraphs(year: int) -> pd.DataFrame:
         f"&ind=0&rost=0&players=&type=8&postseason=&sortdir=default&sortstat=WAR&download=1"
     )
     r = requests.get(url, headers=_browser_headers(FG_COOKIE))
+
     r.raise_for_status()
     df = pd.DataFrame(r.json()["data"])
     df["Name"] = df["Name"].apply(strip_html)
