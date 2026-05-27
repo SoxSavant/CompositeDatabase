@@ -24,10 +24,11 @@ with title_col:
     st.title("Composite Database")
 
 
-HEMBO_STATS = [ "bWAR", "fWAR", "WARP","Value Composite",
+HEMBO_STATS = [ 
     "OPS+", "wRC+", "DRC+", "Hitting Composite",
     "DRS", "FRV", "DRP", "Fielding Composite",
     "Rbaser", "BsR", "DRB", "Baserunning Composite",
+    "bWAR", "fWAR", "WARP","Value Composite",
 
 ]
 
@@ -112,6 +113,7 @@ for stat in stat_cols:
     is_decimal = stat in {
         "DRP", "Rbaser", "BsR", "DRB",
         "Baserunning Composite", "bWAR", "fWAR", "WARP", "Value Composite",
+        "Fielding Composite",
     }
     col_config[stat] = st.column_config.NumberColumn(
         label=label_map.get(stat, stat),
