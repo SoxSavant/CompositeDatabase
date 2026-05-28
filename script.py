@@ -278,5 +278,5 @@ def process_year(year: int):
 
 
 if __name__ == "__main__":
-    for year in range(2021,2026):
+    for year in range(2026,2027):
         process_year(year)

@@ -49,7 +49,6 @@ current_year = date.today().year
 START_YEAR = 1901
 
 
-@st.cache_data(ttl=3600)
 def get_last_updated(year: int) -> str:
     try:
         obj = s3.get_object(Bucket=bucket, Key=f"project/hitting_{year}.csv")
@@ -58,8 +57,6 @@ def get_last_updated(year: int) -> str:
     except Exception:
         return "unknown"
 
-
-@st.cache_data(ttl=3600)
 def load_year_range(start: int, end: int) -> pd.DataFrame:
     frames = []
     for yr in range(start, end + 1):
