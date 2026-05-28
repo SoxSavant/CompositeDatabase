@@ -106,7 +106,21 @@ def fetch_bref(year: int) -> pd.DataFrame:
     })
     numeric_cols = ["MLBAMID", "year_ID", "bWAR", "Rbaser", "OPS+"]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
-    return df[df["year_ID"] == year].drop(columns="year_ID")[["MLBAMID", "bWAR", "Rbaser", "OPS+"]]
+    df = df[df["year_ID"] == year].drop(columns="year_ID")
+
+    # Sum counting stats, PA-weight OPS+ per player to get one row each
+    pa = df.get("PA", pd.Series(1, index=df.index))
+    df["_w_ops"] = df["OPS+"] * pa
+    df["_pa"] = pa
+
+    agg = df.groupby("MLBAMID", as_index=False).agg(
+        bWAR=("bWAR", "sum"),
+        Rbaser=("Rbaser", "sum"),
+        _w_ops=("_w_ops", "sum"),
+        _pa=("_pa", "sum"),
+    )
+    agg["OPS+"] = (agg["_w_ops"] / agg["_pa"].replace(0, float("nan"))).round(0)
+    return agg[["MLBAMID", "bWAR", "Rbaser", "OPS+"]]
 
 def fetch_fielding(year: int) -> pd.DataFrame:
     """Returns PlayerId, DRS, Pos. Safe for years where Inn is missing or data is empty."""
@@ -161,20 +175,16 @@ def fetch_frv(year: int) -> pd.DataFrame:
         f"?csv=true&seasonStart={year}&seasonEnd={year}"
         "&type=fielder&position=0&minInnings=0.1&minResults=1"
     )
-
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    r = requests.get(url, headers=headers)
+    r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     r.raise_for_status()
-
     df = pd.read_csv(StringIO(r.text))
-
-    return df.rename(columns={
-        "id": "MLBAMID",
-        "total_runs": "FRV"
-    })[["MLBAMID", "FRV"]]
+    df = df.rename(columns={"id": "MLBAMID", "total_runs": "FRV"})
+    df["MLBAMID"] = pd.to_numeric(df["MLBAMID"], errors="coerce")
+    df["FRV"] = pd.to_numeric(df["FRV"], errors="coerce")
+    return df.groupby("MLBAMID", as_index=False)["FRV"].sum()
 
 def fetch_bp(year: int) -> pd.DataFrame:
+    EMPTY = pd.DataFrame(columns=["MLBAMID"])
     url = (
         "https://www.baseballprospectus.com/leaderboards/api/v1/hitting/"
         f"?season={year}&level=1"
@@ -182,27 +192,31 @@ def fetch_bp(year: int) -> pd.DataFrame:
         "&plate_appearances=1,800"
         "&limit=99999"
     )
-
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Referer": "https://www.baseballprospectus.com/leaderboards/hitting/",
     }
-
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    js = r.json()
+    try:
+        r = requests.get(url, headers=headers)
+        r.raise_for_status()
+        js = r.json()
+    except Exception as e:
+        print(f"  [bp] fetch failed for {year}: {e}")
+        return EMPTY
 
     df = pd.json_normalize(js["results"])
+    if df.empty:
+        return EMPTY
+
     bp_df = df.rename(columns={
-    "mlbid": "MLBAMID",
-    "drc_plus_agg": "DRC+",
-    "drb_agg": "DRB",
-    "drp_agg": "DRP",
-    "warp_agg": "WARP"
-})
+        "mlbid": "MLBAMID",
+        "drc_plus_agg": "DRC+",
+        "drb_agg": "DRB",
+        "drp_agg": "DRP",
+        "warp_agg": "WARP"
+    })
     keep = [c for c in ["MLBAMID", "DRC+", "DRB", "DRP", "WARP"] if c in bp_df.columns]
-    bp_df = bp_df[keep]
-    return bp_df
+    return bp_df[keep]
 
 
 def safe_mean(df, cols):
@@ -264,5 +278,5 @@ def process_year(year: int):
 
 
 if __name__ == "__main__":
-    for year in range(1901,2000):
+    for year in range(2021,2026):
         process_year(year)

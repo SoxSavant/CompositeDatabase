@@ -61,13 +61,15 @@ def get_last_updated(year: int) -> str:
 
 @st.cache_data(ttl=3600)
 def load_year_range(start: int, end: int) -> pd.DataFrame:
-    """Load and concatenate data for a range of years."""
     frames = []
     for yr in range(start, end + 1):
         df = load_final_year(yr)
         if df is not None and not df.empty:
             df = df.copy()
             df["_year"] = yr
+            if "PlayerId" in df.columns:
+                df["PlayerId"] = pd.to_numeric(df["PlayerId"], errors="coerce").astype("Int64").astype(str)
+                df = df.sort_values("PA", ascending=False).drop_duplicates(subset=["PlayerId"], keep="first")
             frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -118,7 +120,7 @@ view_mode = st.radio(
 )
 
 # ── Filters ────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1, 1, 2])
+c1, c2, c3, c4, c5, c6,c7 = st.columns([1,1,1,1,1,1,1])
 
 with c1:
     year_mode = st.selectbox("Year Mode", ["Single Year", "Year Range"])
@@ -128,12 +130,12 @@ with c2:
         year_single = st.selectbox("Year", list(range(current_year, START_YEAR - 1, -1)))
         year_start = year_end = year_single
     else:
-        year_start = st.selectbox("From", list(range(current_year, START_YEAR - 1, -1)), index=5)
+        year_start = st.selectbox("From", list(range(current_year, START_YEAR - 1, -1)), index=4)
 
 with c3:
     if year_mode == "Year Range":
         valid_ends = list(range(current_year, year_start - 1, -1))
-        year_end = st.selectbox("To", valid_ends)
+        year_end = st.selectbox("To", valid_ends, index=0)
     else:
         st.empty()
 
@@ -162,9 +164,12 @@ with c5:
 with c6:
     if view_mode == "Player":
         min_pa = st.number_input("Min PA", min_value=0, max_value=5000, value=0, step=10)
-        search = st.text_input("Search player")
     else:
         min_pa = 0
+with c7:
+    if view_mode == "Player":
+        search = st.text_input("Search player")
+    else:
         search = ""
 
 # ── Load data ──────────────────────────────────────────────────────────
@@ -200,20 +205,15 @@ multi_year = year_start != year_end
 
 if view_mode == "Player":
     if multi_year:
-        # Pull most recent Team and Pos per player before aggregating
-        meta_cols = {}
         sorted_df = df.sort_values("_year")
-        if "Team" in df.columns:
-            meta_cols["Team"] = sorted_df.groupby("Name")["Team"].last()
-        if "Pos" in df.columns:
-            meta_cols["Pos"] = sorted_df.groupby("Name")["Pos"].last()
+        
+        # Save most recent Name, Team, Pos per player keyed on MLBAMID
+        last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team", "Pos"]]
 
-        # Aggregate stats by Name only — one row per player regardless of position
-        df = aggregate_multi_year(df, ["Name"])
+        df = aggregate_multi_year(df, ["PlayerId"])
 
-        # Re-attach most-recent Team and Pos
-        for col, series in meta_cols.items():
-            df = df.merge(series.rename(col).reset_index(), on="Name", how="left")
+        # Re-attach name/team/pos
+        df = df.merge(last, on="PlayerId", how="left")
 
     # Min PA filter
     if min_pa > 0 and "PA" in df.columns:
