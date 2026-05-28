@@ -63,7 +63,7 @@ def load_year_range(start: int, end: int) -> pd.DataFrame:
         df = load_final_year(yr)
         if df is not None and not df.empty:
             df = df.copy()
-            df["_year"] = yr
+            df["Year"] = yr
             if "PlayerId" in df.columns:
                 df["PlayerId"] = pd.to_numeric(df["PlayerId"], errors="coerce").astype("Int64").astype(str)
                 df = df.sort_values("PA", ascending=False).drop_duplicates(subset=["PlayerId"], keep="first")
@@ -117,20 +117,20 @@ view_mode = st.radio(
 )
 
 # ── Filters ────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6,c7 = st.columns([1,1,1,1,1,1,1])
+c1, c2, c3, c4, c5, c6,c7 = st.columns([1,1,1,1,1,1,2])
 
 with c1:
-    year_mode = st.selectbox("Year Mode", ["Single Year", "Year Range"])
+    year_mode = st.selectbox("Year Mode", ["Single Season", "Multi-Year Span","Split Season"])
 
 with c2:
-    if year_mode == "Single Year":
+    if year_mode == "Single Season":
         year_single = st.selectbox("Year", list(range(current_year, START_YEAR - 1, -1)))
         year_start = year_end = year_single
     else:
         year_start = st.selectbox("From", list(range(current_year, START_YEAR - 1, -1)), index=4)
 
 with c3:
-    if year_mode == "Year Range":
+    if year_mode != "Single Season":
         valid_ends = list(range(current_year, year_start - 1, -1))
         year_end = st.selectbox("To", valid_ends, index=0)
     else:
@@ -165,7 +165,7 @@ with c6:
         min_pa = 0
 with c7:
     if view_mode == "Player":
-        search = st.text_input("Search player")
+        search = st.text_input("Search players (separate by commas)")
     else:
         search = ""
 
@@ -173,7 +173,7 @@ with c7:
 if year_start == year_end:
     df = load_final_year(year_start)
     if df is not None and not df.empty:
-        df["_year"] = year_start
+        df["Year"] = year_start
 else:
     df = load_year_range(year_start, year_end)
 
@@ -198,11 +198,11 @@ if view_mode == "Player":
         df = df[df["Team"].astype(str).apply(lambda t: normalize_team(t) == target)]
 
 # ── Aggregate multi-year if needed ────────────────────────────────────
-multi_year = year_start != year_end
+multi_year = year_start != year_end and year_mode == "Multi-Year Span"
 
 if view_mode == "Player":
     if multi_year:
-        sorted_df = df.sort_values("_year")
+        sorted_df = df.sort_values("Year")
         
         # Save most recent Name, Team, Pos per player keyed on MLBAMID
         last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team", "Pos"]]
@@ -218,9 +218,16 @@ if view_mode == "Player":
 
     # Player search
     if search.strip():
-        df = df[df["Name"].astype(str).str.contains(search.strip(), case=False, na=False)]
+        terms = [t.strip() for t in search.split(",") if t.strip()]
+        if terms:
+            mask = pd.Series(False, index = df.index)
+            for term in terms:
+                mask |= df["Name"].astype(str).str.contains(term, case = False, na = False)
+            df = df[mask]
 
     base_cols = [c for c in ["Name", "Team", "Pos", "PA"] if c in df.columns]
+    if year_mode == "Split Season":
+        base_cols = [c for c in ["Name", "Team", "Year", "Pos", "PA"] if c in df.columns]
     sort_col = "Value Composite" if "Value Composite" in df.columns else None
 
 elif view_mode == "Team":
@@ -229,19 +236,24 @@ elif view_mode == "Team":
         # Drop multi-team placeholder rows (traded players recorded as "---", "TOT", "2TM", etc.)
         MULTI_TEAM_PLACEHOLDERS = {"---", "TOT", "2TM", "3TM", "4TM", "- - -", ""}
         df = df[~df["Team"].astype(str).str.strip().str.upper().isin(MULTI_TEAM_PLACEHOLDERS)]
-        group_cols = ["Team"]
+        if year_mode == "Split Season":
+            group_cols = ["Team", "Year"]
+        else:
+            group_cols = ["Team"]
+        
         df = aggregate_multi_year(df, group_cols)
     else:
         st.error("No Team column found in data.")
         st.stop()
 
-    base_cols = ["Team"]
+    base_cols = ["Team", "Year"] if year_mode == "Split Season" else ["Team"]
     sort_col = "Value Composite" if "Value Composite" in df.columns else None
 
 # ── Build display dataframe ────────────────────────────────────────────
 stat_cols = [c for c in HEMBO_STATS if c in df.columns]
 available_base = [c for c in base_cols if c in df.columns]
 display = df[available_base + stat_cols].copy()
+
 
 if sort_col and sort_col in display.columns:
     display = display.sort_values(sort_col, ascending=False, na_position="last")
@@ -257,8 +269,12 @@ for stat in stat_cols:
         format="%.1f" if stat in DECIMAL_STATS else "%d",
     )
 
-year_label = f"{year_start}–{year_end}" if multi_year else str(year_start)
+year_label = str(year_start) if year_mode == "Single Season" else f"{year_start}–{year_end}"
 mode_label = "Teams" if view_mode == "Team" else "Players"
+if view_mode != "Team" and year_mode == "Split Season":
+    mode_label = "Player Seasons"
+if view_mode == "Team" and year_mode == "Split Season":
+    mode_label = "Team Seasons"
 st.caption(f"Showing {len(display)} {mode_label} · {year_label}")
 
-st.dataframe(display, use_container_width=True, height=600, column_config=col_config)
+st.dataframe(display, width="stretch", height=600, column_config=col_config)
