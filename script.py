@@ -109,6 +109,9 @@ def fetch_bref(year: int) -> pd.DataFrame:
     return df[df["year_ID"] == year].drop(columns="year_ID")[["MLBAMID", "bWAR", "Rbaser", "OPS+"]]
 
 def fetch_fielding(year: int) -> pd.DataFrame:
+    """Returns PlayerId, DRS, Pos. Safe for years where Inn is missing or data is empty."""
+    EMPTY = pd.DataFrame(columns=["PlayerId", "DRS", "Pos"])
+
     url = (
         "https://www.fangraphs.com/api/leaders/major-league/data"
         "?age=&pos=all&stats=fld&lg=all&qual=0"
@@ -120,23 +123,37 @@ def fetch_fielding(year: int) -> pd.DataFrame:
         "&sortdir=default&sortstat=Defense"
     )
 
-    r = requests.get(url, headers=_browser_headers(FG_COOKIE))
-    r.raise_for_status()
-    df = pd.DataFrame(r.json()["data"])
+    try:
+        r = requests.get(url, headers=_browser_headers(FG_COOKIE))
+        r.raise_for_status()
+        df = pd.DataFrame(r.json()["data"])
+    except Exception as e:
+        print(f"  [fielding] fetch failed for {year}: {e}")
+        return EMPTY
+
+    if df.empty or "playerid" not in df.columns:
+        return EMPTY
 
     df["PlayerId"] = df["playerid"]
     df["DRS"] = pd.to_numeric(df.get("DRS"), errors="coerce")
     df["Inn"] = pd.to_numeric(df.get("Inn"), errors="coerce")
 
-    # 1. POS = row with most innings
-    pos = df.loc[df.groupby("PlayerId")["Inn"].idxmax(), ["PlayerId", "Pos"]]
-
-    # 2. DRS = sum across rows
+    # DRS = sum across all position rows per player
     drs = df.groupby("PlayerId", as_index=False)["DRS"].sum()
 
-    # 3. merge AFTER both are clean
-    out = drs.merge(pos, on="PlayerId", how="left")
-    return out
+    # Pos = position with most innings; fall back to first row if Inn is all NaN
+    has_inn = df["Inn"].notna().any()
+    if has_inn:
+        valid = df.dropna(subset=["Inn"])
+        if valid.empty:
+            pos = df.groupby("PlayerId", as_index=False)["Pos"].first()
+        else:
+            pos = valid.loc[valid.groupby("PlayerId")["Inn"].idxmax(), ["PlayerId", "Pos"]]
+            pos = pos.drop_duplicates("PlayerId")
+    else:
+        pos = df.groupby("PlayerId", as_index=False)["Pos"].first()
+
+    return drs.merge(pos, on="PlayerId", how="left")
 
 def fetch_frv(year: int) -> pd.DataFrame:
     url = (
@@ -183,7 +200,8 @@ def fetch_bp(year: int) -> pd.DataFrame:
     "drp_agg": "DRP",
     "warp_agg": "WARP"
 })
-    bp_df = bp_df[["MLBAMID", "DRC+", "DRB", "DRP", "WARP"]]
+    keep = [c for c in ["MLBAMID", "DRC+", "DRB", "DRP", "WARP"] if c in bp_df.columns]
+    bp_df = bp_df[keep]
     return bp_df
 
 
@@ -207,7 +225,8 @@ def process_year(year: int):
     final = final.merge(fielding_fg, on="PlayerId", how="left")
     final = final.merge(fielding_frv, on="MLBAMID", how="left")
     final = final.merge(bref_df,     on="MLBAMID",  how="left")
-    final = final.merge(bp_df,       on="MLBAMID",  how="left")
+    if "MLBAMID" in bp_df:
+       final = final.merge(bp_df,       on="MLBAMID",  how="left")
     
     final["Pos"] = final["Pos_y"]
     final = final.drop(columns=["Pos_x", "Pos_y"], errors="ignore")
@@ -245,4 +264,5 @@ def process_year(year: int):
 
 
 if __name__ == "__main__":
-    process_year(2026)
+    for year in range(1901,2000):
+        process_year(year)

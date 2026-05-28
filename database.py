@@ -46,7 +46,7 @@ DECIMAL_STATS = {
 }
 
 current_year = date.today().year
-START_YEAR = 2000
+START_YEAR = 1901
 
 
 @st.cache_data(ttl=3600)
