@@ -6,7 +6,7 @@ from pathlib import Path
 from io import StringIO
 import re
 
-upload = True
+upload = False
 
 def strip_html(x):
     if isinstance(x, str):
@@ -123,8 +123,7 @@ def fetch_bref(year: int) -> pd.DataFrame:
     return agg[["MLBAMID", "bWAR", "Rbaser", "OPS+"]]
 
 def fetch_fielding(year: int) -> pd.DataFrame:
-    """Returns PlayerId, DRS, Pos. Safe for years where Inn is missing or data is empty."""
-    EMPTY = pd.DataFrame(columns=["PlayerId", "DRS", "Pos"])
+    EMPTY = pd.DataFrame(columns=["PlayerId", "DRS", "Pos", "Inn"])
 
     url = (
         "https://www.fangraphs.com/api/leaders/major-league/data"
@@ -133,7 +132,6 @@ def fetch_fielding(year: int) -> pd.DataFrame:
         "&startdate=&enddate=&month=0&hand=&team=0"
         "&pageitems=10000&pagenum=1"
         "&ind=0&rost=0&players="
-        "&type=c%2C6%2C-1%2C28%2C59%2C-1%2C60%2C66%2C-1"
         "&sortdir=default&sortstat=Defense"
     )
 
@@ -142,32 +140,32 @@ def fetch_fielding(year: int) -> pd.DataFrame:
         r.raise_for_status()
         df = pd.DataFrame(r.json()["data"])
     except Exception as e:
-        print(f"  [fielding] fetch failed for {year}: {e}")
+        print(f"[fielding] fetch failed: {e}")
         return EMPTY
 
     if df.empty or "playerid" not in df.columns:
         return EMPTY
 
-    df["PlayerId"] = df["playerid"]
+    df["PlayerId"] = pd.to_numeric(df["playerid"], errors="coerce")
     df["DRS"] = pd.to_numeric(df.get("DRS"), errors="coerce")
     df["Inn"] = pd.to_numeric(df.get("Inn"), errors="coerce")
 
-    # DRS = sum across all position rows per player
     drs = df.groupby("PlayerId", as_index=False)["DRS"].sum()
 
-    # Pos = position with most innings; fall back to first row if Inn is all NaN
-    has_inn = df["Inn"].notna().any()
-    if has_inn:
-        valid = df.dropna(subset=["Inn"])
-        if valid.empty:
-            pos = df.groupby("PlayerId", as_index=False)["Pos"].first()
-        else:
-            pos = valid.loc[valid.groupby("PlayerId")["Inn"].idxmax(), ["PlayerId", "Pos"]]
-            pos = pos.drop_duplicates("PlayerId")
+    valid = df.dropna(subset=["Inn"])
+    if not valid.empty:
+        pos = valid.loc[
+            valid.groupby("PlayerId")["Inn"].idxmax(),
+            ["PlayerId", "Pos"]
+        ].drop_duplicates("PlayerId")
     else:
         pos = df.groupby("PlayerId", as_index=False)["Pos"].first()
 
-    return drs.merge(pos, on="PlayerId", how="left")
+    return drs.merge(pos, on="PlayerId", how="left").merge(
+        df[["PlayerId", "Inn"]].groupby("PlayerId", as_index=False).sum(),
+        on="PlayerId",
+        how="left"
+    )
 
 def fetch_frv(year: int) -> pd.DataFrame:
     url = (
@@ -232,6 +230,7 @@ def process_year(year: int):
     fg_df       = fetch_fangraphs(year)
     bref_df     = fetch_bref(year)
     fielding_fg   = fetch_fielding(year)
+    print(fielding_fg.head())
     fielding_frv  = fetch_frv(year)
     bp_df       = fetch_bp(year)
 
