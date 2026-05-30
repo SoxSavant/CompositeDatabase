@@ -8,7 +8,7 @@ import re
 
 upload = False
 
-localUpload = True
+localUpload = False
 
 def strip_html(x):
     if isinstance(x, str):
@@ -254,7 +254,7 @@ def process_year(year: int):
         if col not in final.columns:
             final[col] = pd.NA
 
-    final = final[["Name", "Pos", "Team", "PA", "PlayerId", "MLBAMID"] + HEMBO_STATS]
+    final = final[["Name", "Pos", "Team", "PA", "PlayerId", "MLBAMID","Inn"] + HEMBO_STATS]
     for col in whole_cols:
         if col in final.columns and final[col].notna().any():
             final[col] = final[col].round(0).astype("Int64")
