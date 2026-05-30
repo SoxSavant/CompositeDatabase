@@ -80,7 +80,6 @@ s3 = boto3.client(
 
 bucket = "sports-analytics-files"
 
-@st.cache_data(show_spinner=False, ttl=900)
 def load_final_year(year: int) -> pd.DataFrame:
     key = f"project/hitting_{year}.csv"
     try:

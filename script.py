@@ -8,6 +8,8 @@ import re
 
 upload = False
 
+localUpload = True
+
 def strip_html(x):
     if isinstance(x, str):
         return re.sub(r"<.*?>", "", x)
@@ -230,7 +232,6 @@ def process_year(year: int):
     fg_df       = fetch_fangraphs(year)
     bref_df     = fetch_bref(year)
     fielding_fg   = fetch_fielding(year)
-    print(fielding_fg.head())
     fielding_frv  = fetch_frv(year)
     bp_df       = fetch_bp(year)
 
@@ -263,6 +264,9 @@ def process_year(year: int):
     for col in one_decimal_cols:
         if col in final.columns and final[col].notna().any():
             final[col] = final[col].round(1)
+    if localUpload:
+        final.to_csv(f"hitting_{year}.csv")
+        print(f" Locally uploaded {len(final)} players to hitting_{year}.csv")
     # Upload to S3
     if upload:
         csv_buffer = StringIO()
