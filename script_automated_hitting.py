@@ -1,5 +1,4 @@
 import pandas as pd
-from pathlib import Path
 from h_utils_main import STAT_ALLOWLIST
 from io import StringIO
 import requests
@@ -8,7 +7,7 @@ from utils import BREF_COOKIE, FG_COOKIE, strip_html, _browser_headers, s3, buck
 
 localUpload = False
 
-upload = False
+upload = True
  
 startYear = 2026
 EndYear = 2026

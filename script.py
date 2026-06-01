@@ -6,7 +6,7 @@ from pathlib import Path
 from io import StringIO
 import re
 
-upload = False
+upload = True
 
 localUpload = False
 
