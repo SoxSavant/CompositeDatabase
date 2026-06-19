@@ -225,9 +225,9 @@ if view_mode == "Player":
                 mask |= df["Name"].astype(str).str.contains(term, case = False, na = False)
             df = df[mask]
 
-    base_cols = [c for c in ["Name", "Team", "Pos", "PA"] if c in df.columns]
+    base_cols = [c for c in ["Name",] if c in df.columns]
     if year_mode == "Split Season":
-        base_cols = [c for c in ["Name", "Team", "Year", "Pos", "PA"] if c in df.columns]
+        base_cols = [c for c in ["Name",  "Year",] if c in df.columns]
     sort_col = "Value Composite" if "Value Composite" in df.columns else None
 
 elif view_mode == "Team":
