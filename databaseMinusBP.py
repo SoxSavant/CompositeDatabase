@@ -8,7 +8,7 @@ from h_utils import (
     apply_dh_override, s3, bucket
 )
 
-st.set_page_config(page_title="Composite Database (Without BP)", layout="wide", page_icon="⚾")
+st.set_page_config(page_title="Composite Database 2", layout="wide", page_icon="⚾")
 
 st.markdown("""
 <style>
@@ -21,7 +21,7 @@ st.markdown("""
 
 title_col, meta_col = st.columns([3, 1])
 with title_col:
-    st.title("Composite Database (Without BP)")
+    st.title("Composite Database 2")
 
 HEMBO_STATS = [
     "OPS+", "wRC+",  "Hitting Composite (minus BP)",
