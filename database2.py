@@ -26,7 +26,7 @@ with title_col:
 HEMBO_STATS = [
     "OPS+", "wRC+",  "Hitting Composite (minus BP)",
     "DRS", "FRV", "Fielding Composite (minus BP)",
-    "Rbaser", "BsR", "Baserunning Composite (minus BP)",
+    "BRV", "BsR", "Baserunning Composite (minus BP)",
     "bWAR", "fWAR", "Value Composite (minus BP)",
 ]
 
@@ -34,13 +34,13 @@ HEMBO_STATS = [
 # vs averaged (rate stats like OPS+, wRC+, DRC+)
 SUM_STATS = {
     "DRS", "FRV",  "Fielding Composite (minus BP)",
-    "Rbaser", "BsR",  "Baserunning Composite (minus BP)",
+    "BRV", "BsR",  "Baserunning Composite (minus BP)",
     "bWAR", "fWAR",  "Value Composite (minus BP)",
 }
 AVG_STATS = {"OPS+", "wRC+",  "Hitting Composite (minus BP)"}
 
 DECIMAL_STATS = {
-    "Rbaser", "BsR", 
+    "BRV", "BsR", 
     "Baserunning Composite (minus BP)", "bWAR", "fWAR",  "Value Composite (minus BP)",
     "Fielding Composite (minus BP)",
 }
