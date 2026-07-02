@@ -8,7 +8,7 @@ from h_utils import (
     apply_dh_override, s3, bucket
 )
 
-st.set_page_config(page_title="Composite Database 2", layout="wide", page_icon="⚾")
+st.set_page_config(page_title="JUST BASEBALL", layout="wide", page_icon="⚾")
 
 st.markdown("""
 <style>
@@ -21,10 +21,10 @@ st.markdown("""
 
 title_col, meta_col = st.columns([3, 1])
 with title_col:
-    st.title("Composite Database 2")
+    st.title("JUST BASEBALL")
 
 HEMBO_STATS = [
-    "OPS+", "wRC+",  "Hitting Composite (minus BP)",
+    "OPS", "wRC+",
     "DRS", "FRV", "Fielding Composite (minus BP)",
     "BRV", "BsR", "Baserunning Composite (minus BP)",
     "bWAR", "fWAR", "Value Composite (minus BP)",
@@ -37,13 +37,15 @@ SUM_STATS = {
     "BRV", "BsR",  "Baserunning Composite (minus BP)",
     "bWAR", "fWAR",  "Value Composite (minus BP)",
 }
-AVG_STATS = {"OPS+", "wRC+",  "Hitting Composite (minus BP)"}
+AVG_STATS = {"OPS", "wRC+"}
 
 DECIMAL_STATS = {
     "BRV", "BsR", 
     "Baserunning Composite (minus BP)", "bWAR", "fWAR",  "Value Composite (minus BP)",
-    "Fielding Composite (minus BP)",
+    "Fielding Composite (minus BP)"
 }
+
+THREE_DECIMAL_STATS = {"OPS"}
 
 current_year = date.today().year
 START_YEAR = 1901
@@ -269,7 +271,7 @@ col_config = {}
 for stat in stat_cols:
     col_config[stat] = st.column_config.NumberColumn(
         label=strip_bf_suffix(label_map.get(stat, stat)),
-        format="%.1f" if stat in DECIMAL_STATS else "%d",
+        format="%.1f" if stat in DECIMAL_STATS else "%.3f" if stat in THREE_DECIMAL_STATS else "%d",
     )
 
 year_label = str(year_start) if year_mode == "Single Season" else f"{year_start}–{year_end}"
