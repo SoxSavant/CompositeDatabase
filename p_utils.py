@@ -5,6 +5,7 @@ import requests
 import boto3
 import os
 import numpy as np
+from zoneinfo import ZoneInfo
 
 
 TEAM_ALIASES = {
@@ -31,7 +32,7 @@ def normalize_team(team: str) -> str:
     return TEAM_ALIASES.get(t, t)
 
 
-
+label_map = {}
 
 
 
@@ -64,4 +65,12 @@ def load_final_year(year: int) -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()"""
+
+def get_last_updated(year: int) -> str:
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=f"project/pitching_{year}.csv")
+        last_modified = obj["LastModified"].astimezone(ZoneInfo("America/New_York"))
+        return last_modified.strftime("%B %d, %Y")
+    except Exception:
+        return "unknown"
 

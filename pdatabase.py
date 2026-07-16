@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 from zoneinfo import ZoneInfo
 from p_utils import (
-    load_final_year, TEAM_OPTIONS, normalize_team, s3, bucket
+    load_final_year, TEAM_OPTIONS, normalize_team, get_last_updated
 )
 
 st.set_page_config(page_title=" Pitching Composite Database", layout="wide", page_icon="⚾")
@@ -22,35 +22,29 @@ with title_col:
     st.title(" Pitching Composite Database")
 
 HEMBO_STATS = [
-    "ERA", "RA9", "OPS", "OPS+",
+    "ERA", "RA9", "OPS",
     "DRA", "SIERA", "xERA", "Composite", #50% DRA, 40% SIERA, 10% xERA
     "bWAR", "fWAR", "WARP", "Value Composite",
 ]
 
-# Stats that should be summed across years (counting/rate that accumulates)
-# vs averaged (rate stats like OPS+, wRC+, DRC+)
+
 SUM_STATS = {
  
     "bWAR", "fWAR", "WARP", "Value Composite",
 }
-AVG_STATS = { "ERA", "RA9", "OPS", "OPS+", "DRA", "SIERA", "xERA", "Composite",}
+AVG_STATS = { "ERA", "RA9", "OPS", "DRA", "SIERA", "xERA", "Composite",}
 
 DECIMAL_STATS = {
    "bWAR", "fWAR", "WARP", "Value Composite",
 }
 TWO_DECIMAL_STATS = {"ERA","RA9","DRA","SIERA","xERA","Composite"}
 
+THREE_DECIMAL_STATS = {"OPS"}
+
 current_year = date.today().year
 START_YEAR = 1901
 
 
-def get_last_updated(year: int) -> str:
-    try:
-        obj = s3.get_object(Bucket=bucket, Key=f"project/hitting_{year}.csv")
-        last_modified = obj["LastModified"].astimezone(ZoneInfo("America/New_York"))
-        return last_modified.strftime("%B %d, %Y")
-    except Exception:
-        return "unknown"
 
 def load_year_range(start: int, end: int) -> pd.DataFrame:
     frames = []
@@ -237,7 +231,7 @@ display.index += 1
 col_config = {}
 for stat in stat_cols:
     col_config[stat] = st.column_config.NumberColumn(
-        format="%.1f" if stat in DECIMAL_STATS else "%.2f" if stat in TWO_DECIMAL_STATS else "%d",
+        format="%.1f" if stat in DECIMAL_STATS else "%.2f" if stat in TWO_DECIMAL_STATS else "%.3f" if stat in THREE_DECIMAL_STATS else "%d",
     )
 
 year_label = str(year_start) if year_mode == "Single Season" else f"{year_start}–{year_end}"

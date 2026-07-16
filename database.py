@@ -2,11 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from zoneinfo import ZoneInfo
-from h_utils import (
-    load_final_year, label_map,
-    POSITION_OPTIONS, TEAM_OPTIONS, normalize_team,
-    apply_dh_override, s3, bucket
-)
+
 
 st.set_page_config(page_title="Composite Database", layout="wide", page_icon="⚾")
 
@@ -23,39 +19,75 @@ title_col, meta_col = st.columns([3, 1])
 with title_col:
     st.title("Composite Database")
 
-HEMBO_STATS = [
+current_year = date.today().year
+START_YEAR = 1901
+
+from h_utils import get_last_updated
+
+
+last_updated = get_last_updated(current_year)
+st.caption(f"2026 data last updated: {last_updated}")
+
+
+col1, col2, _ = st.columns([2,2,10])
+
+with col1:
+    domain = st.radio("", ["Hitting", "Pitching"], horizontal=True)
+
+if domain == "Hitting":
+    from h_utils import (
+    load_final_year, label_map,
+    POSITION_OPTIONS, TEAM_OPTIONS, normalize_team, get_last_updated,
+    apply_dh_override,
+)
+
+    HEMBO_STATS = [
     "OPS+", "wRC+", "DRC+", "Hitting Composite",
     "DRS", "FRV", "DRP", "Fielding Composite",
     "Rbaser", "BsR", "DRB", "Baserunning Composite",
     "bWAR", "fWAR", "WARP", "Value Composite",
-]
+    ]
 
-# Stats that should be summed across years (counting/rate that accumulates)
-# vs averaged (rate stats like OPS+, wRC+, DRC+)
-SUM_STATS = {
-    "DRS", "FRV", "DRP", "Fielding Composite",
-    "Rbaser", "BsR", "DRB", "Baserunning Composite",
+    # Stats that should be summed across years (counting/rate that accumulates)
+    # vs averaged (rate stats like OPS+, wRC+, DRC+)
+    SUM_STATS = {
+        "DRS", "FRV", "DRP", "Fielding Composite",
+        "Rbaser", "BsR", "DRB", "Baserunning Composite",
+        "bWAR", "fWAR", "WARP", "Value Composite",
+    }
+    AVG_STATS = {"OPS+", "wRC+", "DRC+", "Hitting Composite"}
+
+    DECIMAL_STATS = {
+        "DRP", "Rbaser", "BsR", "DRB",
+        "Baserunning Composite", "bWAR", "fWAR", "WARP", "Value Composite",
+        "Fielding Composite",
+    }
+    TWO_DECIMAL_STATS = {}
+
+    THREE_DECIMAL_STATS = {}
+else:
+    from p_utils import (
+    load_final_year, TEAM_OPTIONS, normalize_team, get_last_updated, label_map
+)
+    HEMBO_STATS = [
+    "ERA", "RA9", "OPS",
+    "DRA", "SIERA", "xERA", "Composite", #50% DRA, 40% SIERA, 10% xERA
     "bWAR", "fWAR", "WARP", "Value Composite",
-}
-AVG_STATS = {"OPS+", "wRC+", "DRC+", "Hitting Composite"}
+    ]
 
-DECIMAL_STATS = {
-    "DRP", "Rbaser", "BsR", "DRB",
-    "Baserunning Composite", "bWAR", "fWAR", "WARP", "Value Composite",
-    "Fielding Composite",
-}
+    SUM_STATS = {
+    
+        "bWAR", "fWAR", "WARP", "Value Composite",
+    }
+    AVG_STATS = { "ERA", "RA9", "OPS", "DRA", "SIERA", "xERA", "Composite",}
 
-current_year = date.today().year
-START_YEAR = 1901
+    DECIMAL_STATS = {
+    "bWAR", "fWAR", "WARP", "Value Composite",
+    }
+    TWO_DECIMAL_STATS = {"ERA","RA9","DRA","SIERA","xERA","Composite"}
 
+    THREE_DECIMAL_STATS = {"OPS"}
 
-def get_last_updated(year: int) -> str:
-    try:
-        obj = s3.get_object(Bucket=bucket, Key=f"project/hitting_{year}.csv")
-        last_modified = obj["LastModified"].astimezone(ZoneInfo("America/New_York"))
-        return last_modified.strftime("%B %d, %Y")
-    except Exception:
-        return "unknown"
 
 def load_year_range(start: int, end: int) -> pd.DataFrame:
     frames = []
@@ -66,12 +98,12 @@ def load_year_range(start: int, end: int) -> pd.DataFrame:
             df["Year"] = yr
             if "PlayerId" in df.columns:
                 df["PlayerId"] = pd.to_numeric(df["PlayerId"], errors="coerce").astype("Int64").astype(str)
-                df = df.sort_values("PA", ascending=False).drop_duplicates(subset=["PlayerId"], keep="first")
+                
             frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def aggregate_multi_year(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
+def aggregate_multi_year_hitting(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
     """
     Aggregate a multi-year dataframe.
     PA is summed; rate stats are PA-weighted averaged; counting stats are summed.
@@ -104,17 +136,46 @@ def aggregate_multi_year(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
 
     return grouped
 
+def aggregate_multi_year_pitching(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
+  
+    agg: dict = {}
 
-last_updated = get_last_updated(current_year)
-st.caption(f"2026 data last updated: {last_updated}")
+    if "IP" in df.columns:
+        df["IP"] = pd.to_numeric(df["IP"], errors="coerce").fillna(0)
+        agg["IP"] = ("IP", "sum")
+
+    for stat in HEMBO_STATS:
+        if stat not in df.columns:
+            continue
+        df[stat] = pd.to_numeric(df[stat], errors="coerce")
+        if stat in AVG_STATS:
+            # IP-weighted average
+            df[f"_w_{stat}"] = df[stat] * df.get("IP", pd.Series(1, index=df.index))
+            agg[f"_w_{stat}"] = (f"_w_{stat}", "sum")
+        else:
+            agg[stat] = (stat, "sum")
+
+    grouped = df.groupby(group_cols, as_index=False).agg(**agg)
+
+    for stat in HEMBO_STATS:
+        if stat not in df.columns:
+            continue
+        if stat in AVG_STATS and f"_w_{stat}" in grouped.columns:
+            grouped[stat] = grouped[f"_w_{stat}"] / grouped["IP"].replace(0, float("nan"))
+            grouped.drop(columns=[f"_w_{stat}"], inplace=True)
+
+    return grouped
+
+
 
 # ── View mode toggle ───────────────────────────────────────────────────
-view_mode = st.radio(
-    "View",
-    ["Player", "Team"],
-    horizontal=True,
-    label_visibility="collapsed",
-)
+with col2:
+    view_mode = st.radio(
+        "",
+        ["Player", "Team"],
+        horizontal=True,
+        
+    )
 
 # ── Filters ────────────────────────────────────────────────────────────
 c1, c2, c3, c4, c5, c6,c7 = st.columns([1,1,1,1,1,1,2])
@@ -127,7 +188,7 @@ with c2:
         year_single = st.selectbox("Year", list(range(current_year, START_YEAR - 1, -1)))
         year_start = year_end = year_single
     else:
-        year_start = st.selectbox("From", list(range(current_year, START_YEAR - 1, -1)), index=4)
+        year_start = st.selectbox("From", list(range(current_year, START_YEAR - 1, -1)), index=1)
 
 with c3:
     if year_mode != "Single Season":
@@ -137,15 +198,16 @@ with c3:
         st.empty()
 
 with c4:
-    if view_mode == "Player":
-        position = st.selectbox(
-            "Position",
-            options=list(POSITION_OPTIONS.keys()),
-            format_func=lambda x: POSITION_OPTIONS[x],
-        )
-    else:
-        position = "all"
-        st.empty()
+    if domain == "Hitting":
+        if view_mode == "Player":
+            position = st.selectbox(
+                "Position",
+                options=list(POSITION_OPTIONS.keys()),
+                format_func=lambda x: POSITION_OPTIONS[x],
+            )
+        else:
+            position = "all"
+            st.empty()
 
 with c5:
     if view_mode == "Player":
@@ -159,15 +221,22 @@ with c5:
         st.empty()
 
 with c6:
-    if view_mode == "Player":
-        min_pa = st.number_input("Min PA", min_value=0, max_value=5000, value=0, step=10)
+    if domain == "Hitting":
+        if view_mode == "Player":
+            min_pa = st.number_input("Min PA", min_value=0, max_value=5000, value=0, step=10)
+        else:
+            min_pa = 0
     else:
-        min_pa = 0
+        if view_mode == "Player":
+            min_ip = st.number_input("Min IP", min_value=0, max_value=5000, value=0, step=10)
+        else:
+            min_ip = 0
 with c7:
     if view_mode == "Player":
         search = st.text_input("Search players (separate by commas)")
     else:
         search = ""
+
 
 # ── Load data ──────────────────────────────────────────────────────────
 if year_start == year_end:
@@ -182,16 +251,18 @@ if df is None or df.empty:
     st.stop()
 
 # ── Position / team / PA / search filters (player mode only) ──────────
-df["Pos"] = df["Pos"].astype(str).str.strip().str.upper()
-df = apply_dh_override(df)
+if domain == "Hitting":
+    df["Pos"] = df["Pos"].astype(str).str.strip().str.upper()
+    df = apply_dh_override(df)
 
 if view_mode == "Player":
-    if position != "all":
-        pos = position.upper()
-        if pos == "OF":
-            df = df[df["Pos"].isin({"LF", "CF", "RF", "OF"})]
-        else:
-            df = df[df["Pos"] == pos]
+    if domain == "Hitting":
+        if position != "all":
+            pos = position.upper()
+            if pos == "OF":
+                df = df[df["Pos"].isin({"LF", "CF", "RF", "OF"})]
+            else:
+                df = df[df["Pos"] == pos]
 
     if team != "all" and "Team" in df.columns:
         target = normalize_team(team)
@@ -205,16 +276,26 @@ if view_mode == "Player":
         sorted_df = df.sort_values("Year")
         
         # Save most recent Name, Team, Pos per player keyed on MLBAMID
-        last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team", "Pos"]]
+        if domain == "Hitting":
+            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team", "Pos"]]
+        else:
+            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team"]]
 
-        df = aggregate_multi_year(df, ["PlayerId"])
+        if domain == "Hitting":
+            df = aggregate_multi_year_hitting(df, ["PlayerId"])
+        else:
+            df = aggregate_multi_year_pitching(df, ["PlayerId"])
 
         # Re-attach name/team/pos
         df = df.merge(last, on="PlayerId", how="left")
 
-    # Min PA filter
-    if min_pa > 0 and "PA" in df.columns:
-        df = df[pd.to_numeric(df["PA"], errors="coerce").fillna(0) >= min_pa]
+    # Min PA/IP filter
+    if domain == "Hitting":
+        if min_pa > 0 and "PA" in df.columns:
+            df = df[pd.to_numeric(df["PA"], errors="coerce").fillna(0) >= min_pa]
+    else:
+        if min_ip > 0 and "IP" in df.columns:
+            df = df[pd.to_numeric(df["IP"], errors="coerce").fillna(0) >= min_ip]
 
     # Player search
     if search.strip():
@@ -241,7 +322,10 @@ elif view_mode == "Team":
         else:
             group_cols = ["Team"]
         
-        df = aggregate_multi_year(df, group_cols)
+        if domain == "Hitting":
+            df = aggregate_multi_year_hitting(df, group_cols)
+        else:
+            df = aggregate_multi_year_pitching(df, group_cols)
     else:
         st.error("No Team column found in data.")
         st.stop()
@@ -266,7 +350,7 @@ col_config = {}
 for stat in stat_cols:
     col_config[stat] = st.column_config.NumberColumn(
         label=label_map.get(stat, stat),
-        format="%.1f" if stat in DECIMAL_STATS else "%d",
+        format="%.1f" if stat in DECIMAL_STATS else "%.2f" if stat in TWO_DECIMAL_STATS else "%.3f" if stat in THREE_DECIMAL_STATS else "%d",
     )
 
 year_label = str(year_start) if year_mode == "Single Season" else f"{year_start}–{year_end}"
