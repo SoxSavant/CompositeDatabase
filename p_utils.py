@@ -73,4 +73,29 @@ def get_last_updated(year: int) -> str:
         return last_modified.strftime("%B %d, %Y")
     except Exception:
         return "unknown"
+    
+def ip_to_outs(value) -> float:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return np.nan
+    try:
+        v = float(value)
+    except Exception:
+        return np.nan
+    innings = int(np.floor(v))
+    fractional = v - innings
+    if abs(fractional - 0.1) < 0.05:
+        outs_extra = 1
+    elif abs(fractional - 0.2) < 0.05:
+        outs_extra = 2
+    else:
+        outs_extra = min(max(int(round(fractional * 3)), 0), 2)
+    return innings * 3 + outs_extra
+
+
+def outs_to_ip(outs: float) -> float:
+    if pd.isna(outs):
+        return np.nan
+    innings = int(float(outs) // 3)
+    remainder = int(round(float(outs) % 3))
+    return innings + remainder / 10
 

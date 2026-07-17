@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import date
 from zoneinfo import ZoneInfo
 
+from p_utils import ip_to_outs, outs_to_ip
+
 
 st.set_page_config(page_title="Composite Database", layout="wide", page_icon="⚾")
 
@@ -29,10 +31,12 @@ last_updated = get_last_updated(current_year)
 st.caption(f"2026 data last updated: {last_updated}")
 
 
-col1, col2, _ = st.columns([2,2,10])
+col1, col2, _ = st.columns([3,2,8])
 
 with col1:
-    domain = st.radio("", ["Hitting", "Pitching"], horizontal=True)
+    domain = st.radio("", ["Hitting", "Pitching","Combined"], horizontal=True)
+
+HIDE_STATS = ["Rbaser", "BsR", "DRB"]
 
 if domain == "Hitting":
     from h_utils import (
@@ -47,6 +51,7 @@ if domain == "Hitting":
     "Rbaser", "BsR", "DRB", "Baserunning Composite",
     "bWAR", "fWAR", "WARP", "Value Composite",
     ]
+
 
     # Stats that should be summed across years (counting/rate that accumulates)
     # vs averaged (rate stats like OPS+, wRC+, DRC+)
@@ -65,7 +70,7 @@ if domain == "Hitting":
     TWO_DECIMAL_STATS = {}
 
     THREE_DECIMAL_STATS = {}
-else:
+elif domain == "Pitching":
     from p_utils import (
     load_final_year, TEAM_OPTIONS, normalize_team, get_last_updated, label_map
 )
@@ -87,6 +92,55 @@ else:
     TWO_DECIMAL_STATS = {"ERA","RA9","DRA","SIERA","xERA","Composite"}
 
     THREE_DECIMAL_STATS = {"OPS"}
+else:  
+    from h_utils import load_final_year as load_hitting_year, TEAM_OPTIONS, normalize_team, label_map
+    from p_utils import load_final_year as load_pitching_year
+
+    HEMBO_STATS = ["Hitting WAR", "Pitching WAR", "Total WAR"]
+    SUM_STATS = {"Hitting WAR", "Pitching WAR", "Total WAR"}
+    AVG_STATS = set()
+    DECIMAL_STATS = {"Hitting WAR", "Pitching WAR", "Total WAR"}
+    TWO_DECIMAL_STATS = {}
+    THREE_DECIMAL_STATS = {}
+
+def load_war_year(year: int) -> pd.DataFrame:
+    hit = load_hitting_year(year)
+    pit = load_pitching_year(year)
+
+    hit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Hitting WAR"])
+    if hit is not None and not hit.empty:
+        hit_slim = hit[["PlayerId", "Name", "Team", "Value Composite"]].copy()
+        hit_slim["PlayerId"] = pd.to_numeric(hit_slim["PlayerId"], errors="coerce").astype("Int64").astype(str)
+        hit_slim = hit_slim.rename(columns={"Value Composite": "Hitting WAR"})
+
+    pit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Pitching WAR"])
+    if pit is not None and not pit.empty:
+        pit_slim = pit[["PlayerId", "Name", "Team", "Value Composite"]].copy()
+        pit_slim["PlayerId"] = pd.to_numeric(pit_slim["PlayerId"], errors="coerce").astype("Int64").astype(str)
+        pit_slim = pit_slim.rename(columns={"Value Composite": "Pitching WAR"})
+
+    merged = hit_slim.merge(pit_slim, on="PlayerId", how="outer", suffixes=("_h", "_p"))
+    merged["Name"] = merged["Name_h"].combine_first(merged["Name_p"])
+    merged["Team"] = merged["Team_h"].combine_first(merged["Team_p"])
+    merged = merged.drop(columns=["Name_h", "Name_p", "Team_h", "Team_p"])
+    return merged
+
+def load_year_range_war(start: int, end: int) -> pd.DataFrame:
+    frames = []
+    for yr in range(start, end + 1):
+        df = load_war_year(yr)
+        if df is not None and not df.empty:
+            df = df.copy()
+            df["Year"] = yr
+            frames.append(df)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+def aggregate_multi_year_war(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
+    for col in ["Hitting WAR", "Pitching WAR"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    agg = {c: (c, "sum") for c in ["Hitting WAR", "Pitching WAR"] if c in df.columns}
+    return df.groupby(group_cols, as_index=False).agg(**agg)
 
 
 def load_year_range(start: int, end: int) -> pd.DataFrame:
@@ -137,33 +191,37 @@ def aggregate_multi_year_hitting(df: pd.DataFrame, group_cols: list) -> pd.DataF
     return grouped
 
 def aggregate_multi_year_pitching(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
-  
     agg: dict = {}
 
     if "IP" in df.columns:
         df["IP"] = pd.to_numeric(df["IP"], errors="coerce").fillna(0)
-        agg["IP"] = ("IP", "sum")
+        df["_outs"] = df["IP"].apply(ip_to_outs)
+        agg["_outs"] = ("_outs", "sum")
 
     for stat in HEMBO_STATS:
         if stat not in df.columns:
             continue
         df[stat] = pd.to_numeric(df[stat], errors="coerce")
         if stat in AVG_STATS:
-            # IP-weighted average
-            df[f"_w_{stat}"] = df[stat] * df.get("IP", pd.Series(1, index=df.index))
-            agg[f"_w_{stat}"] = (f"_w_{stat}", "sum")
+            mask = df[stat].notna()
+            df[f"_w_{stat}"]  = df[stat] * df["_outs"].where(mask, 0)
+            df[f"_ou_{stat}"] = df["_outs"].where(mask, 0)
+            agg[f"_w_{stat}"]  = (f"_w_{stat}", "sum")
+            agg[f"_ou_{stat}"] = (f"_ou_{stat}", "sum")
         else:
             agg[stat] = (stat, "sum")
 
     grouped = df.groupby(group_cols, as_index=False).agg(**agg)
+    grouped["IP"] = grouped["_outs"].apply(outs_to_ip)
 
     for stat in HEMBO_STATS:
         if stat not in df.columns:
             continue
         if stat in AVG_STATS and f"_w_{stat}" in grouped.columns:
-            grouped[stat] = grouped[f"_w_{stat}"] / grouped["IP"].replace(0, float("nan"))
-            grouped.drop(columns=[f"_w_{stat}"], inplace=True)
+            grouped[stat] = grouped[f"_w_{stat}"] / grouped[f"_ou_{stat}"].replace(0, float("nan"))
+            grouped.drop(columns=[f"_w_{stat}", f"_ou_{stat}"], inplace=True)
 
+    grouped = grouped.drop(columns=["_outs"], errors="ignore")
     return grouped
 
 
@@ -240,11 +298,14 @@ with c7:
 
 # ── Load data ──────────────────────────────────────────────────────────
 if year_start == year_end:
-    df = load_final_year(year_start)
+    if domain == "Combined":
+        df = load_war_year(year_start)
+    else:
+        df = load_final_year(year_start)   # existing hitting/pitching loader
     if df is not None and not df.empty:
         df["Year"] = year_start
 else:
-    df = load_year_range(year_start, year_end)
+    df = load_year_range_war(year_start, year_end) if domain == "Combined" else load_year_range(year_start, year_end)
 
 if df is None or df.empty:
     st.error(f"No data found for the selected year(s).")
@@ -283,8 +344,10 @@ if view_mode == "Player":
 
         if domain == "Hitting":
             df = aggregate_multi_year_hitting(df, ["PlayerId"])
-        else:
+        elif domain == "Pitching":
             df = aggregate_multi_year_pitching(df, ["PlayerId"])
+        else:
+            df = aggregate_multi_year_war(df,["PlayerId"])
 
         # Re-attach name/team/pos
         df = df.merge(last, on="PlayerId", how="left")
@@ -309,7 +372,12 @@ if view_mode == "Player":
     base_cols = [c for c in ["Name",] if c in df.columns]
     if year_mode == "Split Season":
         base_cols = [c for c in ["Name",  "Year",] if c in df.columns]
-    sort_col = "Value Composite" if "Value Composite" in df.columns else None
+    if domain == "Combined":
+        sort_col = "Total WAR"
+    elif "Value Composite" in df.columns:
+        sort_col = "Value Composite"
+    else:
+        sort_col = None
 
 elif view_mode == "Team":
     # Aggregate by Team (all years if multi-year)
@@ -324,8 +392,10 @@ elif view_mode == "Team":
         
         if domain == "Hitting":
             df = aggregate_multi_year_hitting(df, group_cols)
-        else:
+        elif domain == "Pitching":
             df = aggregate_multi_year_pitching(df, group_cols)
+        else:
+            df = aggregate_multi_year_war(df, group_cols)
     else:
         st.error("No Team column found in data.")
         st.stop()
@@ -333,8 +403,13 @@ elif view_mode == "Team":
     base_cols = ["Team", "Year"] if year_mode == "Split Season" else ["Team"]
     sort_col = "Value Composite" if "Value Composite" in df.columns else None
 
+if domain == "Combined":
+    df["Hitting WAR"] = pd.to_numeric(df.get("Hitting WAR"), errors="coerce").fillna(0)
+    df["Pitching WAR"] = pd.to_numeric(df.get("Pitching WAR"), errors="coerce").fillna(0)
+    df["Total WAR"] = df["Hitting WAR"] + df["Pitching WAR"]
+
 # ── Build display dataframe ────────────────────────────────────────────
-stat_cols = [c for c in HEMBO_STATS if c in df.columns]
+stat_cols = [c for c in HEMBO_STATS if c in df.columns and c not in HIDE_STATS]
 available_base = [c for c in base_cols if c in df.columns]
 display = df[available_base + stat_cols].copy()
 
