@@ -53,6 +53,18 @@ def load_final_year(year: int) -> pd.DataFrame:
         return df
     except Exception:
         return pd.DataFrame()
+
+def load_final_year_processed(year: int) -> pd.DataFrame:
+    key = f"processed/pitching_final_{year}.csv"
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        df = pd.read_csv(obj["Body"])
+        df["Season"] = year
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
     
 # old loading function
     """@st.cache_data(show_spinner=False, ttl=900)
