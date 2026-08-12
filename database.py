@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 
 from p_utils import ip_to_outs, outs_to_ip
 
+from utils import LEAGUES
+
 
 st.set_page_config(page_title="Composite Database", layout="wide", page_icon="⚾")
 
@@ -236,7 +238,7 @@ with col2:
     )
 
 # ── Filters ────────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6,c7 = st.columns([1,1,1,1,1,1,2])
+c1, c2, c3, c4, c5, c6,c7, c8 = st.columns([1,1,1,1,1,1,1, 2])
 
 with c1:
     year_mode = st.selectbox("Year Mode", ["Single Season", "Multi-Year Span","Split Season"])
@@ -269,16 +271,26 @@ with c4:
 
 with c5:
     if view_mode == "Player":
-        team = st.selectbox(
-            "Team",
-            options=list(TEAM_OPTIONS.keys()),
-            format_func=lambda x: TEAM_OPTIONS[x],
-        )
+        st.markdown('<div style="height: 1.6rem;"></div>', unsafe_allow_html=True)
+        with st.popover("Team"):
+            team = st.multiselect(
+                "Team",
+                options=list(TEAM_OPTIONS.keys()),
+                format_func=lambda x: TEAM_OPTIONS[x],
+            )
     else:
         team = "all"
         st.empty()
-
 with c6:
+    if view_mode == "Player":
+        league = st.selectbox(
+            "League",
+            options=LEAGUES.keys())  
+    else:
+        league = "All"
+        st.empty()
+
+with c7:
     if domain == "Hitting":
         if view_mode == "Player":
             min_pa = st.number_input("Min PA", min_value=0, max_value=5000, value=0, step=10)
@@ -289,7 +301,7 @@ with c6:
             min_ip = st.number_input("Min IP", min_value=0, max_value=5000, value=0, step=10)
         else:
             min_ip = 0
-with c7:
+with c8:
     if view_mode == "Player":
         search = st.text_input("Search players (separate by commas)")
     else:
@@ -325,9 +337,17 @@ if view_mode == "Player":
             else:
                 df = df[df["Pos"] == pos]
 
-    if team != "all" and "Team" in df.columns:
-        target = normalize_team(team)
-        df = df[df["Team"].astype(str).apply(lambda t: normalize_team(t) == target)]
+    if team and team != "all" and "Team" in df.columns:
+        targets = {normalize_team(t) for t in team}
+        df = df[df["Team"].astype(str).apply(lambda t: normalize_team(t) in targets)]
+
+    if league != "All" and "Team" in df.columns:
+        league_teams = LEAGUES[league]
+        df = df[
+            df["Team"].astype(str).apply(
+            lambda t: normalize_team(t) in league_teams
+        )
+    ]
 
 # ── Aggregate multi-year if needed ────────────────────────────────────
 multi_year = year_start != year_end and year_mode == "Multi-Year Span"

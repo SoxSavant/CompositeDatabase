@@ -91,6 +91,20 @@ DIVISION_TEAMS = {
     "NL West":    {"ARI", "COL", "LAD", "SDP", "SFG"},
 }
 
+LEAGUES = {
+    "All":[],
+    "AL": [
+        "BAL", "BOS", "CHW", "CLE", "DET",
+        "HOU", "KCR", "LAA", "MIN", "NYY",
+        "OAK", "SEA", "TBR", "TEX", "TOR"
+    ],
+    "NL": [
+        "ARI", "ATL", "CHC", "CIN", "COL",
+        "LAD", "MIA", "MIL", "NYM", "PHI",
+        "PIT", "SDP", "SFG", "STL", "WSN"
+    ]
+}
+
 ALL_DIVISIONS = list(DIVISION_TEAMS.keys())
 
 def get_team_division(abbrev: str) -> str:
