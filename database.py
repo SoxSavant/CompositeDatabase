@@ -389,9 +389,9 @@ if view_mode == "Player":
                 mask |= df["Name"].astype(str).str.contains(term, case = False, na = False)
             df = df[mask]
 
-    base_cols = [c for c in ["Name",] if c in df.columns]
+    base_cols = [c for c in ["Name", "Team"] if c in df.columns]
     if year_mode == "Split Season":
-        base_cols = [c for c in ["Name",  "Year",] if c in df.columns]
+        base_cols = [c for c in ["Name",  "Team", "Year",] if c in df.columns]
     if domain == "Combined":
         sort_col = "Total WAR"
     elif "Value Composite" in df.columns:
