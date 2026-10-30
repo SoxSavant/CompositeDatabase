@@ -54,9 +54,6 @@ if domain == "Hitting":
     "bWAR", "fWAR", "WARP", "Value Composite",
     ]
 
-
-    # Stats that should be summed across years (counting/rate that accumulates)
-    # vs averaged (rate stats like OPS+, wRC+, DRC+)
     SUM_STATS = {
         "DRS", "FRV", "DRP", "Fielding Composite",
         "Rbaser", "BsR", "DRB", "Baserunning Composite",
@@ -253,7 +250,7 @@ def aggregate_multi_year_pitching(df: pd.DataFrame, group_cols: list) -> pd.Data
 
 
 
-# ── View mode toggle ───────────────────────────────────────────────────
+
 with col2:
     view_mode = st.radio(
         "",
@@ -262,7 +259,7 @@ with col2:
         
     )
 
-# ── Filters ────────────────────────────────────────────────────────────
+
 c1, c2, c3, c4, c5, c6,c7, c8 = st.columns([1,1,1,1,1,1,1, 2])
 
 with c1:
@@ -333,12 +330,12 @@ with c8:
         search = ""
 
 
-# ── Load data ──────────────────────────────────────────────────────────
+
 if year_start == year_end:
     if domain == "Combined":
         df = load_combined_year(year_start)
     else:
-        df = load_final_year(year_start)   # existing hitting/pitching loader
+        df = load_final_year(year_start)  
     if df is not None and not df.empty:
         df["Year"] = year_start
 else:
@@ -348,7 +345,6 @@ if df is None or df.empty:
     st.error(f"No data found for the selected year(s).")
     st.stop()
 
-# ── Position / team / PA / search filters (player mode only) ──────────
 if domain == "Hitting":
     df["Pos"] = df["Pos"].astype(str).str.strip().str.upper()
     df = apply_dh_override(df)
@@ -374,14 +370,14 @@ if view_mode == "Player":
         )
     ]
 
-# ── Aggregate multi-year if needed ────────────────────────────────────
+
 multi_year = year_start != year_end and year_mode == "Multi-Year Span"
 
 if view_mode == "Player":
     if multi_year:
         sorted_df = df.sort_values("Year")
         
-        # Save most recent Name, Team, Pos per player keyed on MLBAMID
+
         if domain == "Hitting":
             last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Pos"]]
         else:
@@ -394,10 +390,9 @@ if view_mode == "Player":
         else:
             df = agg_multi_year_combined(df,["PlayerId"])
 
-        # Re-attach name/team/pos
         df = df.merge(last, on="PlayerId", how="left")
 
-    # Min PA/IP filter
+
     if domain == "Hitting":
         if min_pa > 0 and "PA" in df.columns:
             df = df[pd.to_numeric(df["PA"], errors="coerce").fillna(0) >= min_pa]
@@ -405,7 +400,6 @@ if view_mode == "Player":
         if min_ip > 0 and "IP" in df.columns:
             df = df[pd.to_numeric(df["IP"], errors="coerce").fillna(0) >= min_ip]
 
-    # Player search
     if search.strip():
         terms = [t.strip() for t in search.split(",") if t.strip()]
         if terms:
@@ -427,9 +421,7 @@ if view_mode == "Player":
         sort_col = None
 
 elif view_mode == "Team":
-    # Aggregate by Team (all years if multi-year)
     if "Team" in df.columns:
-        # Drop multi-team placeholder rows (traded players recorded as "---", "TOT", "2TM", etc.)
         MULTI_TEAM_PLACEHOLDERS = {"---", "TOT", "2TM", "3TM", "4TM", "- - -", ""}
         df = df[~df["Team"].astype(str).str.strip().str.upper().isin(MULTI_TEAM_PLACEHOLDERS)]
         if year_mode == "Split Season":
@@ -458,7 +450,6 @@ if domain == "Combined":
     df["Pitch WPA"] = pd.to_numeric(df.get("Pitch WPA"), errors="coerce").fillna(0)
     df["Total WPA"] = df["Bat WPA"] + df["Pitch WPA"]
 
-# ── Build display dataframe ────────────────────────────────────────────
 stat_cols = [c for c in HEMBO_STATS if c in df.columns and c not in HIDE_STATS]
 available_base = [c for c in base_cols if c in df.columns]
 display = df[available_base + stat_cols].copy()
@@ -470,7 +461,6 @@ if sort_col and sort_col in display.columns:
 display = display.reset_index(drop=True)
 display.index += 1
 
-# ── Column config ──────────────────────────────────────────────────────
 col_config = {}
 for stat in stat_cols:
     col_config[stat] = st.column_config.NumberColumn(
