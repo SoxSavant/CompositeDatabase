@@ -109,21 +109,22 @@ def load_combined_year(year: int) -> pd.DataFrame:
     hit = load_hitting_year(year)
     pit = load_pitching_year(year)
 
-    hit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Bat WAR", "Bat WPA"])
+    hit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Age","Bat WAR", "Bat WPA"])
     if hit is not None and not hit.empty:
-        hit_slim = hit[["PlayerId", "Name", "Team", "Value Composite","WPA"]].copy()
+        hit_slim = hit[["PlayerId", "Name", "Team",  "Age", "Value Composite","WPA"]].copy()
         hit_slim["PlayerId"] = pd.to_numeric(hit_slim["PlayerId"], errors="coerce").astype("Int64").astype(str)
         hit_slim = hit_slim.rename(columns={"Value Composite": "Bat WAR","WPA":"Bat WPA"})
 
-    pit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Pitch WAR","Pitch WPA"])
+    pit_slim = pd.DataFrame(columns=["PlayerId", "Name", "Team", "Age", "Pitch WAR","Pitch WPA"])
     if pit is not None and not pit.empty:
-        pit_slim = pit[["PlayerId", "Name", "Team", "Value Composite","WPA"]].copy()
+        pit_slim = pit[["PlayerId", "Name", "Team",  "Age","Value Composite","WPA"]].copy()
         pit_slim["PlayerId"] = pd.to_numeric(pit_slim["PlayerId"], errors="coerce").astype("Int64").astype(str)
         pit_slim = pit_slim.rename(columns={"Value Composite": "Pitch WAR","WPA":"Pitch WPA"})
 
     merged = hit_slim.merge(pit_slim, on="PlayerId", how="outer", suffixes=("_h", "_p"))
     merged["Name"] = merged["Name_h"].combine_first(merged["Name_p"])
     merged["Team"] = merged["Team_h"].combine_first(merged["Team_p"])
+    merged["Age"] = merged["Age_h"].combine_first(merged["Age_p"])
     merged = merged.drop(columns=["Name_h", "Name_p", "Team_h", "Team_p"])
     return merged
 
@@ -158,12 +159,20 @@ def load_year_range(start: int, end: int) -> pd.DataFrame:
             frames.append(df)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
+def _collapse_teams(teams: pd.Series) -> str:
+    valid = {
+        normalize_team(t) for t in teams
+        if str(t).strip() not in ("", "- - -", "nan")
+    }
+    if len(valid) > 1:
+        return "---"
+    if len(valid) == 1:
+        return next(iter(valid))
+    return normalize_team(str(teams.iloc[0]))
+
 
 def aggregate_multi_year_hitting(df: pd.DataFrame, group_cols: list) -> pd.DataFrame:
-    """
-    Aggregate a multi-year dataframe.
-    PA is summed; rate stats are PA-weighted averaged; counting stats are summed.
-    """
+
     agg: dict = {}
 
     if "PA" in df.columns:
@@ -189,6 +198,14 @@ def aggregate_multi_year_hitting(df: pd.DataFrame, group_cols: list) -> pd.DataF
         if stat in AVG_STATS and f"_w_{stat}" in grouped.columns:
             grouped[stat] = grouped[f"_w_{stat}"] / grouped["PA"].replace(0, float("nan"))
             grouped.drop(columns=[f"_w_{stat}"], inplace=True)
+    
+    if "Team" in df.columns and "Team" not in group_cols:
+        team_info = (
+            df.groupby(group_cols)["Team"]
+            .apply(_collapse_teams)
+            .reset_index()
+        )
+        grouped = grouped.merge(team_info, on=group_cols, how="left")
 
     return grouped
 
@@ -222,6 +239,14 @@ def aggregate_multi_year_pitching(df: pd.DataFrame, group_cols: list) -> pd.Data
         if stat in AVG_STATS and f"_w_{stat}" in grouped.columns:
             grouped[stat] = grouped[f"_w_{stat}"] / grouped[f"_ou_{stat}"].replace(0, float("nan"))
             grouped.drop(columns=[f"_w_{stat}", f"_ou_{stat}"], inplace=True)
+
+    if "Team" in df.columns  and "Team" not in group_cols:
+        team_info = (
+            df.groupby(group_cols)["Team"]
+            .apply(_collapse_teams)
+            .reset_index()
+        )
+        grouped = grouped.merge(team_info, on=group_cols, how="left")
 
     grouped = grouped.drop(columns=["_outs"], errors="ignore")
     return grouped
@@ -358,9 +383,9 @@ if view_mode == "Player":
         
         # Save most recent Name, Team, Pos per player keyed on MLBAMID
         if domain == "Hitting":
-            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team", "Pos"]]
+            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Pos"]]
         else:
-            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name", "Team"]]
+            last = sorted_df.groupby("PlayerId", as_index=False).last()[["PlayerId", "Name",]]
 
         if domain == "Hitting":
             df = aggregate_multi_year_hitting(df, ["PlayerId"])
@@ -389,8 +414,10 @@ if view_mode == "Player":
                 mask |= df["Name"].astype(str).str.contains(term, case = False, na = False)
             df = df[mask]
 
-    base_cols = [c for c in ["Name", "Team"] if c in df.columns]
+    base_cols = [c for c in ["Name", "Team", "Age"] if c in df.columns]
     if year_mode == "Split Season":
+        base_cols = [c for c in ["Name",  "Team", "Age", "Year",] if c in df.columns]
+    if year_mode == "Multi-Year Span":
         base_cols = [c for c in ["Name",  "Team", "Year",] if c in df.columns]
     if domain == "Combined":
         sort_col = "Total WAR"
